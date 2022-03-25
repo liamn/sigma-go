@@ -146,9 +146,61 @@ func TestRuleEvaluator_HandlesToplevelJSONPath(t *testing.T) {
 	}))
 
 	result, _ := rule.Matches(context.Background(), map[string]interface{}{
-		"toplevel": "value",
+		"toplevel": []string{"value"},
 	})
 	if !result.Match {
 		t.Error("A single-level JSONPath expression (e.g. Name: $.name) should be behave identically to a plain field mapping (e.g. Name: name)")
+	}
+}
+
+func TestRuleEvaluator_HandlesToplevelNestedJSONPath(t *testing.T) {
+	rule := ForRule(sigma.Rule{
+		Logsource: sigma.Logsource{
+			Category: "category",
+			Product:  "product",
+			Service:  "service",
+		},
+		Detection: sigma.Detection{
+			Searches: map[string]sigma.Search{
+				"test": {
+					FieldMatchers: []sigma.FieldMatcher{{
+						Field:  "name",
+						Values: []string{"value1"},
+					}},
+				},
+				"field2": {
+					FieldMatchers: []sigma.FieldMatcher{{
+						Field:  "field2",
+						Values: []string{"hello"},
+					}},
+				},
+			},
+			Conditions: []sigma.Condition{
+				{
+					Search: sigma.And{
+						sigma.SearchIdentifier{Name: "test"},
+						sigma.SearchIdentifier{Name: "field2"},
+					},
+				},
+				{
+					Search: sigma.AllOfThem{},
+				},
+			},
+		},
+	}, WithConfig(sigma.Config{
+		FieldMappings: map[string]sigma.FieldMapping{
+			"name":   {TargetNames: []string{"$.toplevel[*].field1"}},
+			"field2": {TargetNames: []string{"$.toplevel[*].field2"}},
+		},
+	}))
+
+	result, _ := rule.Matches(context.Background(), map[string]interface{}{
+		"toplevel": []interface{}{
+			map[string]interface{}{"field1": "value1", "field2": "hello"},
+			map[string]interface{}{"field1": "value2"},
+		},
+	})
+	if !result.Match {
+		t.Error("A nested JSON field (e.g. Values: $.values[*]) should perform an evaluation on all entries in the array")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -135,13 +136,16 @@ func (rule *RuleEvaluator) matcherMatchesValues(matcher sigma.FieldMatcher, comp
 	} else {
 		// FieldMapping does exist so check each of the possible mapped names instead of the name from the rule
 		for _, mapping := range rule.fieldmappings[matcher.Field] {
-			if strings.HasPrefix(mapping, "$.") || strings.HasPrefix(mapping, "$[") {
-				// This is a jsonpath expression
-				actualValues = append(actualValues, evaluateJSONPath(mapping, event))
-			} else {
-				// This is just a field name
-				actualValues = append(actualValues, eventValue(event, mapping))
+			var v interface{}
+
+			switch {
+			case strings.HasPrefix(mapping, "$.") || strings.HasPrefix(mapping, "$["):
+				v = evaluateJSONPath(mapping, event)
+			default:
+				v = eventValue(event, mapping)
 			}
+
+			actualValues = append(actualValues, toGenericSlice(v)...)
 		}
 	}
 
@@ -243,4 +247,21 @@ var modifiers = map[string]valueModifier{
 			return next(actual, base64.StdEncoding.EncodeToString([]byte(expected)))
 		}
 	},
+}
+
+func toGenericSlice(v interface{}) []interface{} {
+	rv := reflect.ValueOf(v)
+
+	// if this isn't a slice, then return a slice containing the
+	// original value
+	if rv.Kind() != reflect.Slice {
+		return []interface{}{v}
+	}
+
+	var out []interface{}
+	for i := 0; i < rv.Len(); i++ {
+		out = append(out, rv.Index(i).Interface())
+	}
+
+	return out
 }
